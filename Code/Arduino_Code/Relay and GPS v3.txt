@@ -1,0 +1,114 @@
+#include <SoftwareSerial.h>
+#include <TinyGPS.h>
+TinyGPS gps;
+SoftwareSerial ss(5, 6);
+static void smartdelay(unsigned long ms);
+char inchar;
+int Relay1 = 8;
+int Relay2 = 9;
+String inputString = ""; // set an empty string
+boolean stringComplete = false; // See if we are done reading from serial line
+
+void setup()
+{
+  Serial.begin(9600);
+  ss.begin(9600);
+
+  pinMode(Relay1, OUTPUT);
+  pinMode(Relay2, OUTPUT);
+  digitalWrite(Relay1, HIGH);
+  digitalWrite(Relay2, LOW);
+
+  inputString.reserve(8);
+
+  delay(2000);
+  Serial.println("AT + CMGF = 1"); // set mode to text
+  delay(100);
+  Serial.println("AT + CNMI = 2, 2, 0, 0, 0");
+  delay(100);
+}
+
+
+void loop() {
+  float flat, flon;
+  unsigned long age, date, time, chars = 0;
+  unsigned short sentences = 0, failed = 0;
+  char lockKey[9] = "$LOCK123";
+  char unlockKey[9] = "$UNLOCK1";
+
+
+  serialEvent(); // See if there are data on serial line and get it
+  if (stringComplete) { // If we are done reading on serial line
+    //   if (inputString == "$a0") {
+    if (inputString == lockKey) {
+      digitalWrite(Relay1, HIGH);
+      delay(1000);
+      digitalWrite(Relay1, LOW);
+      Serial.println("Relay1 LockKey");
+      gps.f_get_position(&flat, &flon, &age);
+      sendLatLang(flat, flon);
+      gps.stats(&chars, &sentences, &failed);
+      Serial.println();
+      smartdelay(1000);
+      Serial.println("AT + CMGD = 1, 4");
+    } else if (inputString == unlockKey ) {
+      Serial.println("Relay2 unlockkey");
+      digitalWrite(Relay2, HIGH);
+      delay(1000);
+      digitalWrite(Relay2, LOW);
+      gps.f_get_position(&flat, &flon, &age);
+      sendLatLang(flat, flon);
+      gps.stats(&chars, &sentences, &failed);
+     // digitalWrite(Relay, HIGH);
+      Serial.println();
+      smartdelay(1000);
+      Serial.println("AT + CMGD = 1, 4");
+    }
+    inputString = "";
+    stringComplete = false;
+  }
+}
+
+static void smartdelay(unsigned long ms)
+{
+  unsigned long start = millis();
+  do
+  {
+    while (ss.available())
+      gps.encode(ss.read());
+  } while (millis() - start < ms);
+}
+static void sendLatLang(float lat, float lang)
+{
+  if (lat == TinyGPS::GPS_INVALID_F_ANGLE || lang == TinyGPS::GPS_INVALID_F_ANGLE) {
+    Serial.println("Searching for GPS fix...");
+  } else {
+    Serial.println("AT+CMGF=1");
+    delay(1000);
+    Serial.println("AT+CMGS=\"+919900182744\"");
+    delay(1000);
+    Serial.print("Latittude : ");
+    Serial.println(lat);
+    Serial.print("Longitude : ");
+    Serial.println(lang);
+    Serial.write(26);
+    delay(1000);
+  }
+}
+
+
+void serialEvent() {
+  // Read data from serial line until we get a \n.
+  // Store data in inputString
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    if ((inChar == '\r') || (inChar == '\n')) {
+      if (inputString.length() > 0) {
+        stringComplete = true;
+        break;
+      }
+    } else {
+      inputString += inChar;
+    }
+  }
+}
